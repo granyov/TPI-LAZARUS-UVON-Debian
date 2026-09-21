@@ -54,9 +54,8 @@ xz -dc tpi-lazarus-uvon-debian13.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync s
 `/dev/sdX` — диск целиком, не раздел. Проверьте `lsblk` дважды: команда стирает
 всё содержимое.
 
-Образ выкладывается в двух упаковках, распаковываются они в побайтно одинаковый
-файл: `.img.xz` понимают графические писалки вроде Etcher и Raspberry Pi Imager,
-а `.img.zst` распаковывается быстрее. Для `.zst` команда та же через `zstd -dc`.
+Формат `.img.xz` понимают графические писалки вроде Etcher и Raspberry Pi
+Imager — распаковывать вручную не нужно, файл скармливается им как есть.
 
 ### С самой платы, через microSD
 
@@ -75,7 +74,7 @@ TPI-LAZARUS=> bootefi 0x10000000
 Система поднимется с карты. Дальше с неё:
 
 ```sh
-zstd -dc /path/to/tpi-lazarus-uvon-debian13.img.zst | dd of=/dev/sda bs=4M conv=fsync status=progress
+xz -dc /path/to/tpi-lazarus-uvon-debian13.img.xz | dd of=/dev/sda bs=4M conv=fsync status=progress
 reboot
 ```
 
@@ -149,5 +148,5 @@ tailscale up --hostname=имя-платы
 
 ```sh
 sha256sum -c SHA256SUMS
-zstd -t tpi-lazarus-uvon-debian13.img.zst
+xz -t tpi-lazarus-uvon-debian13.img.xz
 ```

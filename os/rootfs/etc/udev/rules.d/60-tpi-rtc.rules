@@ -1,0 +1,8 @@
+# TPI LAZARUS UVON: батарейные часы — /dev/rtc-battery.
+#
+# Номера rtc0/rtc1 не фиксированы: часы внутри PMIC и внешний HYM8563
+# регистрируются наперегонки. Алиас rtc0 в device tree не помогает — часы PMIC
+# создаются как устройство без узла DT и занимают нулевой номер первыми.
+# Поэтому HYM8563 получает устойчивое имя, и время берётся из него: службу
+# tpi-rtc запускает само появление часов (SYSTEMD_WANTS), а не порядок загрузки.
+SUBSYSTEM=="rtc", ATTR{name}=="rtc-hym8563*", SYMLINK+="rtc-battery", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tpi-rtc.service"

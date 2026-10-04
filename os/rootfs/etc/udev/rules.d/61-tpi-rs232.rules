@@ -1,0 +1,17 @@
+# TPI LAZARUS UVON: постоянные имена портов V.24 (RS-232) — /dev/ttyRS232-1 и -2.
+#
+# Каждый порт идёт через свой микроконтроллер-мост GD32F103 на UART SoC.
+# Ядерные имена в разных ОС разные: в Astra ttyS4 и ttyS5, в Debian 13 —
+# ttyS0 и ttyS1 (в ядре Debian всего четыре линии 8250). Здесь порт
+# определяется по адресу контроллера:
+#   fe680000 (UART4) — порт V.24 1;
+#   fe690000 (UART5) — порт V.24 2.
+# Пока мост не прошит, порт открывается, но на линии тишина.
+ACTION=="remove", GOTO="tpi_rs232_end"
+SUBSYSTEM!="tty", GOTO="tpi_rs232_end"
+KERNEL!="ttyS[0-9]*", GOTO="tpi_rs232_end"
+
+KERNELS=="fe680000.serial", SYMLINK+="ttyRS232-1"
+KERNELS=="fe690000.serial", SYMLINK+="ttyRS232-2"
+
+LABEL="tpi_rs232_end"

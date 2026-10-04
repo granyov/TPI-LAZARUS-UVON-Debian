@@ -1,0 +1,55 @@
+#!/bin/bash
+# TPI LAZARUS UVON / Debian 13: выполняется один раз после записи образа.
+set -u
+
+echo "TPI: первичная настройка"
+
+# Ключи хоста SSH: из образа они удалены намеренно, иначе все платы оказались
+# бы с одними и теми же приватными ключами.
+ssh-keygen -A
+
+# Свой machine-id: от него зависят адреса, которые systemd выводит для
+# интерфейсов без собственного MAC, и идентичность узла Tailscale.
+systemd-machine-id-setup
+
+# Корень растягиваем на весь носитель: образ собран впритык. На eMMC раздел
+# уже полного размера — growpart там ничего не меняет, а resize2fs нужен всё
+# равно: файловая система в комплекте меньше раздела.
+ROOTDEV=$(findmnt -no SOURCE /)
+PART=${ROOTDEV##*[!0-9]}
+DISK=/dev/$(lsblk -no PKNAME "$ROOTDEV")
+growpart "$DISK" "$PART" || echo "TPI: раздел не расширялся (уже во всю доступную область)"
+if resize2fs "$ROOTDEV"; then
+    echo "TPI: корень занял весь раздел"
+fi
+
+# MAC для карт RTL8111H: своего EEPROM у них нет, и systemd выводит адрес из
+# machine-id — после переустановки он другой. Продолжаем блок, который U-Boot
+# задаёт встроенным портам из идентификатора кристалла (fe2a0000 — +0,
+# fe010000 — +1): карты получают +2 и +3 по порядку PCI-путей, адреса платы
+# связны и не меняются при переустановке.
+udevadm settle -t 30 || true
+BASE=$(cat /sys/devices/platform/fe2a0000.ethernet/net/*/address 2>/dev/null | head -n1)
+if [ -n "$BASE" ]; then
+    PFX=${BASE%:*}
+    LAST=$(( 0x${BASE##*:} ))
+    i=2
+    for n in /sys/class/net/*; do
+        [ "$(basename "$(readlink -f "$n/device/driver" 2>/dev/null)")" = r8169 ] || continue
+        printf '%s %s\n' "$(udevadm info -q property -p "$n" | sed -n 's/^ID_PATH=//p')" "${n##*/}"
+    done | sort | while read -r path ifname; do
+        mac=$(printf '%s:%02x' "$PFX" $(( (LAST + i) & 0xff )))
+        # Политики имён — как в 99-default.link: этот файл заменяет его для
+        # карты, и без них после перезагрузки карта осталась бы с ядерным ethN
+        # вместо enP1p1s0.
+        printf '[Match]\nPath=%s\nDriver=r8169\n\n[Link]\nNamePolicy=keep kernel database onboard slot path\nAlternativeNamesPolicy=database onboard slot path\nMACAddress=%s\n' \
+            "$path" "$mac" > "/etc/systemd/network/20-tpi-realtek-$i.link"
+        # Сейчас же, чтобы и первая загрузка шла с постоянным адресом.
+        ip link set dev "$ifname" address "$mac" && echo "TPI: $ifname — $mac"
+        i=$((i + 1))
+    done
+fi
+
+# Флаг снимается — служба больше не запустится (ConditionPathExists).
+rm -f /var/lib/tpi-firstboot-pending
+echo "TPI: первичная настройка завершена"

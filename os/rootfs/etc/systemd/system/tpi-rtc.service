@@ -1,0 +1,17 @@
+# Запускается правилом udev 60-tpi-rtc.rules, как только появятся часы HYM8563.
+# При запуске из sysinit.target служба опережала udev: ссылки /dev/rtc-battery
+# ещё не было, и время из батарейных часов не бралось.
+[Unit]
+Description=Взять время из батарейных часов платы
+DefaultDependencies=no
+After=dev-rtc\x2dbattery.device
+Wants=time-set.target
+Before=time-set.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/dev/rtc-battery
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/hwclock --rtc /dev/rtc-battery --hctosys
+ExecStop=/usr/sbin/hwclock --rtc /dev/rtc-battery --systohc

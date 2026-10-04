@@ -1,0 +1,15 @@
+[Unit]
+Description=TPI LAZARUS UVON: первичная настройка (ключи SSH, расширение корня, MAC)
+ConditionPathExists=/var/lib/tpi-firstboot-pending
+After=local-fs.target
+Before=network-pre.target ssh.service systemd-user-sessions.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tpi-firstboot
+StandardOutput=journal+console
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

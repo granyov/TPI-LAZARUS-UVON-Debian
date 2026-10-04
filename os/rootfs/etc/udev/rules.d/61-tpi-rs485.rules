@@ -1,0 +1,25 @@
+# TPI LAZARUS UVON: постоянные имена портов RS-422/485 — /dev/ttyRS485-1…8.
+#
+# Номера ttyUSB зависят от того, какой из двух мостов FT4232H опрошен первым:
+# порты 1–4 бывают ttyUSB4–7 («порты 1–4 видны как 5–8»). Здесь порт
+# определяется по USB-контроллеру и интерфейсу чипа:
+#   EHCI fd800000, интерфейсы 0–3 (A–D) — порты 1–4;
+#   EHCI fd880000, интерфейсы 0–3 (A–D) — порты 5–8.
+# Если EHCI в device tree выключены, мосты работают через парные OHCI fd840000
+# и fd8c0000 — имена те же. Соответствие клеммам на панели — по руководству
+# на плату (порт 1 — ttyUSB0 и т. д.), на панели не подтверждено.
+ACTION=="remove", GOTO="tpi_rs485_end"
+SUBSYSTEM!="tty", GOTO="tpi_rs485_end"
+KERNEL!="ttyUSB[0-9]*", GOTO="tpi_rs485_end"
+IMPORT{builtin}="path_id"
+
+ENV{ID_PATH}=="platform-fd800000.usb-usb-0:1:1.0|platform-fd840000.usb-usb-0:1:1.0", SYMLINK+="ttyRS485-1"
+ENV{ID_PATH}=="platform-fd800000.usb-usb-0:1:1.1|platform-fd840000.usb-usb-0:1:1.1", SYMLINK+="ttyRS485-2"
+ENV{ID_PATH}=="platform-fd800000.usb-usb-0:1:1.2|platform-fd840000.usb-usb-0:1:1.2", SYMLINK+="ttyRS485-3"
+ENV{ID_PATH}=="platform-fd800000.usb-usb-0:1:1.3|platform-fd840000.usb-usb-0:1:1.3", SYMLINK+="ttyRS485-4"
+ENV{ID_PATH}=="platform-fd880000.usb-usb-0:1:1.0|platform-fd8c0000.usb-usb-0:1:1.0", SYMLINK+="ttyRS485-5"
+ENV{ID_PATH}=="platform-fd880000.usb-usb-0:1:1.1|platform-fd8c0000.usb-usb-0:1:1.1", SYMLINK+="ttyRS485-6"
+ENV{ID_PATH}=="platform-fd880000.usb-usb-0:1:1.2|platform-fd8c0000.usb-usb-0:1:1.2", SYMLINK+="ttyRS485-7"
+ENV{ID_PATH}=="platform-fd880000.usb-usb-0:1:1.3|platform-fd8c0000.usb-usb-0:1:1.3", SYMLINK+="ttyRS485-8"
+
+LABEL="tpi_rs485_end"

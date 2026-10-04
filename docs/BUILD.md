@@ -31,6 +31,7 @@
 | Питание, IO-домены | `rk8xx`, `fan53555`, `rockchip-iodomain` | RK809 + TCS4525 |
 | Термодатчики | `rockchip-thermal` | cpu и gpu зоны |
 | USB, FT4232H | `dwc3`, `xhci`, `ftdi_sio` | 8 × `ttyUSB` |
+| V.24 (UART4, UART5) | `8250_dw` | `ttyS0`, `ttyS1` через мосты GD32F103, см. `docs/V24.md` |
 | RGA, видеокодеки | `rockchip-rga`, `hantro-vpu` | `/dev/video0..2` |
 
 Вендорским остаётся только то, чем плата не пользуется: NPU и вендорский DVFS
@@ -150,7 +151,7 @@ ClientIdentifier=mac
 # /etc/systemd/system/serial-getty@ttyS2.service.d/autologin.conf
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --keep-baud 115200,57600,38400,9600 %I $TERM
+ExecStart=-/sbin/agetty --autologin root --keep-baud 1500000,115200,57600,38400,9600 %I $TERM
 ```
 
 Опцию `-o "-p -- \u"` из штатного юнита надо именно **убрать**, а не дополнить
@@ -207,22 +208,25 @@ dtc -I dts -O dtb -@ -o /boot/dtb/rk3568-tpi-lazarus.dtb /tmp/pre.dts
 
 ## Пункт меню GRUB
 
-`grub.cfg` лежит на ESP (`/dev/sda2`, `EFI/BOOT/grub.cfg`). Ядро, initramfs и
-DTB читаются с ext4 того же диска:
+`grub.cfg` лежит на ESP (`EFI/BOOT/grub.cfg`). Ядро, initramfs и DTB читаются
+с ext4 того же диска. Так его пишут сборщики образов (`scripts/debian-common.sh`):
 
 ```text
-menuentry 'TPI LAZARUS: Debian 13, kernel 6.12 mainline (rootfs on SATA)' {
-    search --no-floppy --fs-uuid --set=root <UUID sda1>
-    linux /boot/vmlinuz-6.12.107+deb13-arm64 root=UUID=<UUID sda1> rw rootwait \
-          console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xfe660000
+menuentry "TPI LAZARUS: Debian 13" {
+    search --no-floppy --fs-uuid --set=root <UUID корня>
+    linux /vmlinuz root=UUID=<UUID корня> rw rootwait \
+          console=ttyS2,1500000n8 earlycon=uart8250,mmio32,0xfe660000
     devicetree /boot/dtb/rk3568-tpi-lazarus.dtb
-    initrd /boot/initrd.img-6.12.107+deb13-arm64
+    initrd /initrd.img
 }
 ```
 
 Консоль здесь `ttyS2`, а не вендорская `ttyFIQ0`, и вендорский параметр
-`storagemedia=emmc` не нужен. Ядро Debian для arm64 — несжатый PE32+ EFI, GRUB
-берёт его напрямую.
+`storagemedia=emmc` не нужен. Скорость — 1 500 000, как у прошивки v3.9 и в
+`stdout-path` device tree. Ядро Debian для arm64 — несжатый PE32+ EFI, GRUB
+берёт его напрямую. `/vmlinuz` и `/initrd.img` — ссылки, которые Debian
+переставляет при установке нового ядра, поэтому после `apt upgrade` меню
+править не нужно; GRUB ссылки на ext4 понимает.
 
 Заводская система из меню убрана: её ядро вешает плату (см. ниже), так что
 пункт был не запасным вариантом, а миной. Вместо него — аварийный вход тем же
@@ -231,8 +235,8 @@ menuentry 'TPI LAZARUS: Debian 13, kernel 6.12 mainline (rootfs on SATA)' {
 ```text
 menuentry "TPI LAZARUS: Debian 13, rescue shell" {
     ...
-    linux /boot/<ядро> root=UUID=<UUID> rw rootwait \
-          console=ttyS2,115200n8 systemd.unit=rescue.target
+    linux /vmlinuz root=UUID=<UUID> rw rootwait \
+          console=ttyS2,1500000n8 systemd.unit=rescue.target
     ...
 }
 ```
@@ -262,18 +266,26 @@ menuentry "TPI LAZARUS: Debian 13, rescue shell" {
 
 | Интерфейс | Адрес | Откуда |
 |---|---|---|
-| `end0` (gmac1) | `…:d2` | U-Boot, из идентификатора кристалла |
-| `end1` (gmac0) | `…:d3` | U-Boot |
+| `end0` (gmac0, `fe2a0000`) | `…:d2` | U-Boot, из идентификатора кристалла |
+| `end1` (gmac1, `fe010000`) | `…:d3` | U-Boot |
 | `enP1p1s0` (pcie3x1) | `…:d4` | `.link`, задан явно |
 | `enP2p1s0` (pcie3x2) | `…:d5` | `.link`, задан явно |
 
+Какой из двух адресов U-Boot достанется какому GMAC, решают алиасы
+`ethernet0`/`ethernet1` в device tree ОС: U-Boot кладёт `ethaddr` в узел, на
+который указывает `ethernet0`. Они же дают имена `end0`/`end1`. До выпуска
+`debian13-20261004` алиасы стояли наоборот, и `end0` был `fe010000`; теперь
+порядок тот же, что в U-Boot и в Astra Linux на этой плате.
+
 ```ini
-# /etc/systemd/network/20-realtek-pcie3x1.link
+# /etc/systemd/network/20-tpi-realtek-2.link
 [Match]
 Path=platform-3c0400000.pcie-pci-0001:01:00.0
 Driver=r8169
 
 [Link]
+NamePolicy=keep kernel database onboard slot path
+AlternativeNamesPolicy=database onboard slot path
 MACAddress=7a:b7:02:4d:94:d4
 ```
 
@@ -281,9 +293,13 @@ MACAddress=7a:b7:02:4d:94:d4
 каждую загрузку и для `[Match]` не годится. Все адреса
 локально-администрируемые — зарегистрированного OUI у изделия нет.
 
-Важно: такой `.link` привязан к **конкретному экземпляру**. При серийном
-выпуске адреса надо генерировать на каждую плату от её собственного базового
-адреса, а не копировать файл как есть.
+Строки `NamePolicy` и `AlternativeNamesPolicy` обязательны. Подошедший `.link`
+целиком заменяет для карты `99-default.link`, и без политики имён карта
+остаётся с ядерным именем: на стенде с такими файлами без политики карты
+назывались `eth0` и `eth1` вместо `enP1p1s0` и `enP2p1s0`.
+
+Важно: такой `.link` привязан к **конкретному экземпляру**. В образах его пишет
+служба первого запуска `tpi-firstboot` от базового адреса этой платы.
 
 ## Удалённый доступ
 
@@ -378,18 +394,24 @@ rtc-hym8563 3-0051: /aliases ID 0 not available
 
 ```
 # /etc/udev/rules.d/60-tpi-rtc.rules
-SUBSYSTEM=="rtc", ATTR{name}=="rtc-hym8563*", SYMLINK+="rtc-battery"
+SUBSYSTEM=="rtc", ATTR{name}=="rtc-hym8563*", SYMLINK+="rtc-battery", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tpi-rtc.service"
 ```
 
-`tpi-rtc.service` выполняет `hwclock --rtc /dev/rtc-battery --hctosys` до
-`sysinit.target`, а при остановке записывает в них актуальное время. Нужен
-пакет `util-linux-extra` — в минимальной Debian `hwclock` отсутствует.
+`tpi-rtc.service` выполняет `hwclock --rtc /dev/rtc-battery --hctosys`, а при
+остановке записывает в часы актуальное время. Запускает её само появление
+часов (`SYSTEMD_WANTS` в правиле), а не порядок загрузки: привязанная к
+`sysinit.target`, служба опережала udev — ссылки `/dev/rtc-battery` ещё не
+было, условие не выполнялось, и время из батарейных часов не бралось вовсе.
+Так было в образе `debian13-20260921`; часы там к тому же не работали, потому
+что не было `hwclock` — он в пакете `util-linux-extra`, которого нет в
+минимальной Debian.
 
-Обе сборки образов это уже ставят. На стенде проверено, что ссылка
-`/dev/rtc-battery` указывает на HYM8563 при любом порядке нумерации, и что
-служба отрабатывает на каждой загрузке. Полную проверку — что при снятии
-питания время берётся именно из батарейных часов — можно сделать только
-физически, обесточив плату.
+Обе сборки образов это ставят. На стенде проверено: ссылка `/dev/rtc-battery`
+указывает на HYM8563 при любом порядке нумерации, служба отрабатывает на
+каждой загрузке — примерно на 16-й секунде, ещё до сети и NTP — и время
+системы совпадает с батарейными часами. Полную проверку — что после снятия
+питания время берётся именно из батарейных часов — можно сделать, только
+обесточив плату без сети.
 
 ## Безобидные сообщения в журнале
 

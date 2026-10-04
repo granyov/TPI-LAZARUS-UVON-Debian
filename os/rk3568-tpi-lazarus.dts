@@ -23,17 +23,33 @@
 	model = "TPI LAZARUS UVON";
 	compatible = "tpi,lazarus-uvon", "forlinx,fet3568-c", "rockchip,rk3568";
 
+	/*
+	 * ethernet0/1 задают и имена end0/end1 в Linux, и то, какой из двух MAC,
+	 * выведенных U-Boot из идентификатора кристалла, достаётся какому
+	 * контроллеру. Порядок — как в U-Boot и в Astra: end0 = GMAC0 (fe2a0000).
+	 *
+	 * Порты V.24. Ядро Debian собрано с CONFIG_SERIAL_8250_NR_UARTS=4: линий
+	 * 8250 всего четыре, и ttyS4/ttyS5, как в Astra и в руководстве на плату,
+	 * здесь невозможны — с алиасами serial4/5 из rk356x.dtsi порты просто
+	 * занимают первые свободные номера. Здесь это закреплено явно: V.24 1 —
+	 * ttyS0, V.24 2 — ttyS1 (uart0 и uart1 на плате не используются). Имена,
+	 * одинаковые в обеих ОС, — /dev/ttyRS232-1 и -2 от правила udev образа.
+	 */
 	aliases {
-		ethernet0 = &gmac1;
-		ethernet1 = &gmac0;
+		ethernet0 = &gmac0;
+		ethernet1 = &gmac1;
 		mmc0 = &sdhci;
 		mmc1 = &sdmmc2;
 		rtc0 = &hym8563;
+		serial0 = &uart4;
+		serial1 = &uart5;
 		serial2 = &uart2;
+		/delete-property/ serial4;
+		/delete-property/ serial5;
 	};
 
 	chosen {
-		stdout-path = "serial2:115200n8";
+		stdout-path = "serial2:1500000n8";
 	};
 
 	firmware {
@@ -552,16 +568,29 @@
 	status = "okay";
 };
 
-/* Два свободных порта на разъёме carrier'а. */
+/*
+ * Порты V.24 (RS-232) на панели. Каждый идёт через свой микроконтроллер-мост
+ * GD32F103: SoC говорит с мостом обычным UART, мост — с линией. Без прошивки в
+ * мосте порт молчит, хотя устройство в системе есть и открывается.
+ * uart4 — порт V.24 1, uart5 — порт V.24 2.
+ *
+ * DMA портам не даём: в rk356x.dtsi у UART есть dmas, но нет dma-names, и
+ * при каждом открытии порта ядро пишет ошибку («dma-names property … missing
+ * or empty»), после чего порт всё равно работает без DMA, через FIFO. Без
+ * dmas ошибки нет; остаётся только предупреждение драйвера «failed to request
+ * DMA» — DMA он пробует всегда.
+ */
 &uart4 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart4m1_xfer>;
+	/delete-property/ dmas;
 	status = "okay";
 };
 
 &uart5 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5m1_xfer>;
+	/delete-property/ dmas;
 	status = "okay";
 };
 
